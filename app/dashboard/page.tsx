@@ -6,7 +6,6 @@ import {
   CheckCircle,
   MessageSquare,
   MinusCircle,
-  TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
 import { useSelector } from "react-redux";
@@ -37,38 +36,11 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-5">
-      <div className="max-w-7xl mx-auto mb-5 px-4">
-        {/* Tabs */}
-        <div className="flex flex-wrap gap-4 bg-gray-100 border w-fit rounded-2xl">
-          <div
-            onClick={() => setTab("dashboard")}
-            className={`${
-              tab === "dashboard"
-                ? "bg-white text-green-500 shadow-md"
-                : "text-gray-600 hover:text-green-500"
-            } rounded-xl cursor-pointer px-4 py-2 font-medium transition-all duration-300`}
-          >
-            Dashboard
-          </div>
-          <div
-            onClick={() => setTab("insights")}
-            className={`${
-              tab === "insights"
-                ? "bg-white text-green-500 shadow-md"
-                : "text-gray-600 hover:text-green-500"
-            } rounded-xl cursor-pointer px-4 py-2 font-medium transition-all duration-300`}
-          >
-            Insights
-          </div>
-        </div>
-      </div>
-
       {/* ---------------- Dashboard Section ---------------- */}
-      {tab === "dashboard" && (
         <div className="max-w-7xl mx-auto px-4" id="dashboard">
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              Analytics Dashboard
+              Analytics Dashboard & Insights
             </h1>
             <p className="text-gray-600">
               Real-time sentiment analysis and trends
@@ -238,47 +210,37 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* ---------------- Insights Section ---------------- */}
-      {tab === "insights" && (
-        <div className="max-w-7xl mx-auto px-4" id="insights">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              AI-Generated Insights
-            </h1>
-            <p className="text-gray-600">
-              Actionable recommendations based on feedback analysis
-            </p>
+             
           </div>
+          <div className="bg-white rounded-xl shadow-md p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                AI Generated Insights
+              </h3>
+              <div className="flex items-center h-auto">
+                <div>
+           {summary?.suggestions && summary.suggestions.length > 0 ? (
+  summary.suggestions.map((suggestion, i) => (
+    <div
+      key={i}
+      className="flex items-start gap-3 p-4 my-4 border border-blue-300 bg-blue-50 rounded-xl shadow-sm hover:bg-blue-100 transition-all duration-200"
+    >
+      <span className="text-blue-500 text-lg">💡</span>
+      <p className="text-gray-700 leading-relaxed">{suggestion}</p>
+    </div>
+  ))
+) : (
+  <div className="flex flex-col items-center justify-center text-center">
+    <p className="text-gray-500 text-sm">No suggestions</p>
+  </div>
+)}
 
-          <div>
-            {summary?.suggestions.map((suggestion) => (
-              <div className="text-gray-600 bg-white p-4 border-blue-400 border rounded my-4">{suggestion}</div>
-            ))}
-          </div>
 
-          {/* Insights Summary Card */}
-          <div className="mt-8 bg-linear-to-r from-blue-600 to-purple-600 rounded-xl shadow-lg p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold mb-2">
-                  AI Analysis Confidence
-                </h3>
-                <p className="text-blue-100">
-                  Based on {summary?.total ?? 0} feedback entries
-                </p>
-              </div>
-              <div className="text-right">
-                <div className="text-4xl font-bold">94%</div>
-                <div className="text-blue-100 text-sm">Accuracy Score</div>
+
+                </div>
               </div>
             </div>
-          </div>
         </div>
-      )}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import axios, { AxiosError } from "axios"
 import { useDispatch } from "react-redux";
 import { AppDispatch } from "@/store/store";
-import { clearFeedback, setFeedbackResults } from "@/store/feedbackSlice";
+import { setFeedbackResults } from "@/store/feedbackSlice";
 
 interface Feedback {
   id: number;
@@ -22,6 +22,7 @@ const UploadPage: React.FC = () => {
   const [manualFeedback, setManualFeedback] = useState<string>("");
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [disableUpload, setDisableUpload] = useState<boolean>(false);
+  const [disableManualButton, setDisableManualButton] = useState<boolean>(false);
 
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -45,7 +46,6 @@ const UploadPage: React.FC = () => {
       "Content-Type": "multipart/form-data",
     },
   });
-  console.log("Response:", res.data);
   dispatch(setFeedbackResults({summary: {positive: res.data.positive,
     negative: res.data.negative,
     total: res.data.total,
@@ -72,6 +72,7 @@ const UploadPage: React.FC = () => {
 
   const handleManualSubmit = async () => {
     if (manualFeedback.trim()) {
+      setDisableManualButton(true)
       try {
   const res = await axios.post("/api/manual", {feedback: manualFeedback.trim()}, );
   dispatch(setFeedbackResults({summary: {positive: res.data.positive,
@@ -91,6 +92,7 @@ const UploadPage: React.FC = () => {
   alert(axiosError.response?.data?.error || "Failed to analyze input");
 }
       setManualFeedback("");
+      setDisableManualButton(false)
     }
 
     
@@ -191,10 +193,10 @@ const UploadPage: React.FC = () => {
 
             <button
               onClick={handleManualSubmit}
-              disabled={!manualFeedback.trim()}
-              className="w-full mt-4 px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+              disabled={!manualFeedback.trim() || disableManualButton}
+              className="w-full mt-4 px-6 py-3 disabled: bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
-              Submit Feedback
+            {disableManualButton ? "Analyzing..." : "Submit Feedback" }
             </button>
           </div>
         </div>

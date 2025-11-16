@@ -1,6 +1,33 @@
 // app/api/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
+import { pipeline } from "@xenova/transformers";
+import Groq from "groq-sdk";
+
+let classifier: any;
+
+// 🔥 Warmup the model ONCE when the server starts
+const warmup = (async () => {
+  try {
+    console.log("⏳ Warming up BERT model...");
+    classifier = await pipeline(
+      "text-classification",
+      "Xenova/twitter-roberta-base-sentiment-latest"
+    );
+
+    // Empty warmup inference
+    await classifier(["warmup"], { topk: 1 });
+
+    console.log("🔥 BERT Model Warmed Up");
+  } catch (err) {
+    console.error("❌ Warmup failed:", err);
+  }
+})();
+
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
+
 
 interface FeedbackAnalysis {
   sentiment: 'positive' | 'neutral' | 'negative';
@@ -59,45 +86,60 @@ function detectFeedbackColumn(data: any[]): string | null {
 }
 
 // Free sentiment analysis using multiple methods
-async function analyzeSentiment(text: string): Promise<{ sentiment: 'positive' | 'neutral' | 'negative'; score: number }> {
-  // Method 1: Try Hugging Face Inference API (free, no key required)
+async function analyzeSentiment(texts: string[]): Promise<
+  { sentiment: "positive" | "neutral" | "negative"; score: number }[]
+> {
   try {
-    const response = await fetch(
-      'https://api-inference.huggingface.co/models/cardiffnlp/twitter-roberta-base-sentiment-latest',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          inputs: text.substring(0, 500), // Limit text length
-          options: { wait_for_model: true }
-        }),
-      }
-    );
-    
-    if (response.ok) {
-      const result = await response.json();
-      if (result && result[0] && Array.isArray(result[0])) {
-        const sentiments = result[0];
-        const topSentiment = sentiments.reduce((prev: any, current: any) => 
-          (current.score > prev.score) ? current : prev
-        );
-        
-        let sentiment: 'positive' | 'neutral' | 'negative' = 'neutral';
-        if (topSentiment.label.toLowerCase().includes('pos')) sentiment = 'positive';
-        else if (topSentiment.label.toLowerCase().includes('neg')) sentiment = 'negative';
-        
-        return { sentiment, score: topSentiment.score };
+    if (!classifier) {
+      classifier = await pipeline(
+        "text-classification",
+        "Xenova/twitter-roberta-base-sentiment-latest"
+      );
+    }
+  
+    // Larger chunks = fewer model calls = faster
+    const CHUNK_SIZE = 200;
+  
+    // Split texts into chunks
+    const chunks: string[][] = [];
+    for (let i = 0; i < texts.length; i += CHUNK_SIZE) {
+      chunks.push(texts.slice(i, i + CHUNK_SIZE));
+    }
+  
+    // Process MAX 4 chunks at once → 4× speed
+    const MAX_PARALLEL = 4;
+  
+    const results: any[] = [];
+    let index = 0;
+  
+    async function runBatch() {
+      while (index < chunks.length) {
+        const chunkIndex = index++;
+        const chunk = chunks[chunkIndex];
+  
+        const batch = await classifier(chunk, { topk: 1 });
+        results[chunkIndex] = batch;
       }
     }
-  } catch (error) {
-    console.log('HF API unavailable, using fallback');
-  }
   
-  // Method 2: Advanced keyword-based analysis (always works)
-  return advancedKeywordAnalysis(text);
+    // Launch 4 parallel workers
+    const workers = Array.from({ length: MAX_PARALLEL }, () => runBatch());
+    await Promise.all(workers);
+  
+    // Flatten results from all chunks
+    const flatResults = results.flat();
+  
+    return flatResults.map((res: any) => ({
+      sentiment: res.label as "positive" | "neutral" | "negative",
+      score: res.score,
+    }));
+  } catch (error) {
+    console.log("BERT Error: ", error)    
+    return texts.map((text) => advancedKeywordAnalysis(text))
+  }
 }
+
+
 
 // Advanced keyword-based sentiment analysis with scoring
 function advancedKeywordAnalysis(text: string): { sentiment: 'positive' | 'neutral' | 'negative'; score: number } {
@@ -201,7 +243,7 @@ function extractIssues(feedbacks: FeedbackAnalysis[]): Array<{ issue: string; co
   const issueKeywords: { [key: string]: string[] } = {
     'Customer Service': ['service', 'staff', 'support', 'employee', 'representative', 'help', 'rude', 'unhelpful', 'customer', 'agent'],
     'Product Quality': ['quality', 'broken', 'defective', 'damaged', 'poor', 'cheap', 'faulty', 'durability', 'materials'],
-    'Delivery & Shipping': ['delivery', 'shipping', 'late', 'delayed', 'arrive', 'received', 'package', 'tracking', 'carrier'],
+    'Delivery & Shipping': ['delivery', 'shipping', 'late', 'delayed', 'arrive', 'received', 'package', 'tracking', 'carrier', 'torn', 'teared', 'tear'],
     'Pricing': ['price', 'expensive', 'cost', 'overpriced', 'value', 'money', 'refund', 'charge'],
     'User Experience': ['difficult', 'confusing', 'complicated', 'hard', 'interface', 'use', 'navigate', 'unintuitive'],
     'Performance': ['slow', 'crash', 'bug', 'error', 'freeze', 'lag', 'glitch', 'loading', 'speed'],
@@ -225,8 +267,41 @@ function extractIssues(feedbacks: FeedbackAnalysis[]): Array<{ issue: string; co
     .slice(0, 5);
 }
 
+
 // Generate suggestions based on top issues
-function generateSuggestions(topIssues: Array<{ issue: string; count: number }>): string[] {
+async function generateSuggestions(topIssues: Array<{ issue: string; count: number }>): Promise<string[]> {
+ if (!topIssues.length) return [];
+
+  const prompt = `
+Based on the following customer issue categories, generate 3 short, actionable improvement suggestions that apply to ANY business type (not only websites or apps):
+
+Categories:
+${topIssues.map(c => `- ${c.issue} (${c.count} mentions)`).join("\n")}
+
+Guidelines:
+- DO NOT mention anything technical (no UI, no websites, no app design, no digital interfaces).
+- Suggestions must be practical and applicable to ANY business domain (retail, service, manufacturing, logistics, hospitality, etc.)
+- Keep each suggestion 1–2 sentences.
+- Focus on process improvement, customer experience, quality, delivery, pricing, communication, or service.
+- Ensure each suggestion directly relates to the categories given.
+- Return ONLY a JSON array of suggestions (no explanation).
+`;
+
+
+ 
+
+  try {    
+     const response = await groq.chat.completions.create({
+    model: "openai/gpt-oss-20b",
+    messages: [{role: "system", content: "You are a business improvement analyst."},{ role: "user", content: prompt }],
+    temperature: 0.3,
+  });
+
+    return JSON.parse(response.choices[0].message.content || "");
+  } catch (error) {
+    console.log("Error generating suggestions by AI: ", error)
+  }
+
   const suggestionMap: { [key: string]: string } = {
     'Customer Service': 'Invest in comprehensive customer service training and expand support team capacity to reduce response times',
     'Product Quality': 'Implement rigorous quality control processes and conduct regular product testing before release',
@@ -244,48 +319,51 @@ function generateSuggestions(topIssues: Array<{ issue: string; count: number }>)
 }
 
 // Main analysis function
-export async function performAnalysis(feedbacks: string[]): Promise<AnalysisResult> {
-  const analyzedFeedbacks: FeedbackAnalysis[] = [];
-  
-    console.log("Analyzing Sentiment...")
-  // Analyze each feedback
-  for (const text of feedbacks) {
-    if (!text || text.trim().length === 0) continue;
+export async function performAnalysis(
+  feedbacks: string[]
+): Promise<AnalysisResult> {
 
-    
-    const result = await analyzeSentiment(text.trim());
-    analyzedFeedbacks.push({
-      ...result,
-      text: text.trim()
-    });
-    // Small delay to avoid overwhelming free API
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  console.log("Sentiments Analyzed")
-  const positive = analyzedFeedbacks.filter(f => f.sentiment === 'positive').length;
-  const negative = analyzedFeedbacks.filter(f => f.sentiment === 'negative').length;
-  const neutral = analyzedFeedbacks.filter(f => f.sentiment === 'neutral').length;
-  
-  const topIssues = extractIssues(analyzedFeedbacks);
-  const suggestions = generateSuggestions(topIssues);
-  
+  // Clean input
+  const cleaned = feedbacks
+  .map(f => f?.trim().slice(0, 300))   // keep only first 300 chars
+  .filter(Boolean);
+
+
+  // Batch inference
+  const batchResults = await analyzeSentiment(cleaned);
+
+  // Merge results with text
+  const analyzed: FeedbackAnalysis[] = cleaned.map((text, i) => ({
+    text,
+    sentiment: batchResults[i].sentiment,
+    score: batchResults[i].score
+  }));
+
+
+  // Summary
+  const positive = analyzed.filter(f => f.sentiment === "positive").length;
+  const negative = analyzed.filter(f => f.sentiment === "negative").length;
+  const neutral = analyzed.filter(f => f.sentiment === "neutral").length;
+
+  const topIssues = extractIssues(analyzed);
+  const suggestions = await generateSuggestions(topIssues);
+
   return {
-    total: analyzedFeedbacks.length,
+    total: analyzed.length,
     positive,
-    neutral,
     negative,
+    neutral,
     topIssues,
     suggestions,
-    feedbacks: analyzedFeedbacks,
+    feedbacks: analyzed
   };
 }
+
 
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File;
-
-    console.log(file.name)
     
     if (!file) {
       return NextResponse.json(
@@ -318,13 +396,9 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    console.log("File parsed")
     
     // Detect feedback column
     const feedbackColumn = detectFeedbackColumn(data);
-
-    console.log("Feddback Column: ", feedbackColumn)
     
     if (!feedbackColumn) {
       return NextResponse.json(
@@ -338,7 +412,6 @@ export async function POST(req: NextRequest) {
       .map((row: any) => String(row[feedbackColumn] || ''))
       .filter(text => text.trim().length > 0);
 
-      console.log("Feedbacks: ", feedbacks)
     
     if (feedbacks.length === 0) {
       return NextResponse.json(
@@ -347,12 +420,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log("Performing analysis...")
     
     // Perform analysis
     const result = await performAnalysis(feedbacks);
 
-    console.log(result)
     
     return NextResponse.json({
       success: true,
@@ -369,4 +440,3 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// // app/api/manual/route.ts (add this as a separate file)

@@ -6,7 +6,7 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <div className="min-h-screen bg-linear-to-br from-blue-50 via-white to-purple-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="text-center mb-16">
           <div className="inline-block mb-4 px-4 py-2 bg-blue-100 text-blue-600 rounded-full text-sm font-medium">
@@ -14,7 +14,7 @@ export default function HomePage() {
           </div>
           <h1 className="text-5xl font-bold text-gray-900 mb-6">
             Transform Customer Feedback into
-            <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"> Actionable Insights</span>
+            <span className="bg-linear-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"> Actionable Insights</span>
           </h1>
           <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
             Leverage advanced AI and NLP to analyze sentiment, identify trends, and make data-driven decisions that improve your products and services.
@@ -68,7 +68,7 @@ export default function HomePage() {
               { value: '24/7', label: 'AI Processing' }
             ].map((stat, idx) => (
               <div key={idx}>
-                <div className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+                <div className="text-4xl font-bold bg-linear-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
                   {stat.value}
                 </div>
                 <div className="text-gray-600">{stat.label}</div>

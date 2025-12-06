@@ -30,7 +30,6 @@ export default function DashboardPage() {
     sum: positiveRatio + neutralRatio + negativeRatio,
   });
 
-  const [tab, setTab] = useState<"dashboard" | "insights">("dashboard");
 
   const circumference = 502; // ~2πr (r=80)
 
@@ -194,12 +193,16 @@ export default function DashboardPage() {
                         </span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
-                        {/* <div
+                        <div
                           className="bg-red-500 h-2 rounded-full"
                           style={{
-                            width: `${item.percentage ?? 0}%`,
+width: `${
+  item.count && summary.topIssues
+    ? Math.min((item.count / summary.total) * 100, 100)
+    : 0
+}%`
                           }}
-                        ></div> */}
+                        ></div>
                       </div>
                     </div>
                   ))

@@ -4,25 +4,6 @@ import * as XLSX from 'xlsx';
 import { pipeline } from "@xenova/transformers";
 import Groq from "groq-sdk";
 
-let classifier: any;
-
-// 🔥 Warmup the model ONCE when the server starts
-const warmup = (async () => {
-  try {
-    console.log("⏳ Warming up BERT model...");
-    classifier = await pipeline(
-      "text-classification",
-      "Xenova/twitter-roberta-base-sentiment-latest"
-    );
-
-    // Empty warmup inference
-    await classifier(["warmup"], { topk: 1 });
-
-    console.log("🔥 BERT Model Warmed Up");
-  } catch (err) {
-    console.error("❌ Warmup failed:", err);
-  }
-})();
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -86,58 +67,44 @@ function detectFeedbackColumn(data: any[]): string | null {
 }
 
 // Free sentiment analysis using multiple methods
-async function analyzeSentiment(texts: string[]): Promise<
-  { sentiment: "positive" | "neutral" | "negative"; score: number }[]
-> {
-  try {
-    if (!classifier) {
-      classifier = await pipeline(
-        "text-classification",
-        "Xenova/twitter-roberta-base-sentiment-latest"
+async function analyzeSentiment(texts: string[]) {
+  const results = [];
+
+  for (const text of texts) {
+    try {
+      const response = await fetch(
+        "https://api-inference.huggingface.co/models/Xenova/twitter-roberta-base-sentiment-latest",
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.HF_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+          body: JSON.stringify({
+            inputs: text
+          }),
+        }
       );
+
+      const json = await response.json();
+
+      // Convert HF output to your format
+      const top = json[0][0]; // highest probability
+
+      results.push({
+        sentiment: top.label.toLowerCase() as "positive" | "neutral" | "negative",
+        score: top.score,
+      });
+
+    } catch (err) {
+      console.log("HF API error → falling back to keyword model");
+      results.push(advancedKeywordAnalysis(text));
     }
-  
-    // Larger chunks = fewer model calls = faster
-    const CHUNK_SIZE = 200;
-  
-    // Split texts into chunks
-    const chunks: string[][] = [];
-    for (let i = 0; i < texts.length; i += CHUNK_SIZE) {
-      chunks.push(texts.slice(i, i + CHUNK_SIZE));
-    }
-  
-    // Process MAX 4 chunks at once → 4× speed
-    const MAX_PARALLEL = 4;
-  
-    const results: any[] = [];
-    let index = 0;
-  
-    async function runBatch() {
-      while (index < chunks.length) {
-        const chunkIndex = index++;
-        const chunk = chunks[chunkIndex];
-  
-        const batch = await classifier(chunk, { topk: 1 });
-        results[chunkIndex] = batch;
-      }
-    }
-  
-    // Launch 4 parallel workers
-    const workers = Array.from({ length: MAX_PARALLEL }, () => runBatch());
-    await Promise.all(workers);
-  
-    // Flatten results from all chunks
-    const flatResults = results.flat();
-  
-    return flatResults.map((res: any) => ({
-      sentiment: res.label as "positive" | "neutral" | "negative",
-      score: res.score,
-    }));
-  } catch (error) {
-    console.log("BERT Error: ", error)    
-    return texts.map((text) => advancedKeywordAnalysis(text))
   }
+
+  return results;
 }
+
 
 
 
